@@ -280,6 +280,26 @@ final class S3Storage implements StorageInterface
         return DownloadResponseFactory::fromString($contents, $filename);
     }
 
+    public function prefix(): string
+    {
+        return $this->prefix;
+    }
+
+    public function setPrefix(string $prefix): void
+    {
+        $this->prefix = trim($prefix, '/');
+    }
+
+    public function baseUrl(): ?string
+    {
+        return $this->baseUrl;
+    }
+
+    public function setBaseUrl(?string $baseUrl): void
+    {
+        $this->baseUrl = $baseUrl !== null && $baseUrl !== '' ? rtrim($baseUrl, '/') : null;
+    }
+
     private function buildKey(string $path): string
     {
         $path = ltrim($path, '/');

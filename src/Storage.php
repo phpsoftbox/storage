@@ -8,6 +8,7 @@ use PhpSoftBox\Storage\Contracts\StorageInterface;
 use PhpSoftBox\Storage\Drivers\Local\LocalStorage;
 use PhpSoftBox\Storage\Drivers\S3\S3Storage;
 
+use function array_values;
 use function is_array;
 use function is_string;
 
@@ -41,6 +42,28 @@ final class Storage
     public function url(string $path, ?string $disk = null): string
     {
         return $this->disk($disk)->url($path);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function diskNames(): array
+    {
+        $disks = $this->config['disks'] ?? [];
+        if (!is_array($disks) || $disks === []) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($disks as $name => $_config) {
+            if (!is_string($name) || $name === '') {
+                continue;
+            }
+
+            $names[$name] = $name;
+        }
+
+        return array_values($names);
     }
 
     private function defaultDisk(): string

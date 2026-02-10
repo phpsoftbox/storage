@@ -6,6 +6,8 @@ namespace PhpSoftBox\Storage\Tests;
 
 use FilesystemIterator;
 use PhpSoftBox\Storage\Drivers\Local\LocalStorage;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -18,6 +20,7 @@ use function sys_get_temp_dir;
 use function uniqid;
 use function unlink;
 
+#[CoversClass(LocalStorage::class)]
 final class LocalStorageTest extends TestCase
 {
     private string $root;
@@ -52,6 +55,10 @@ final class LocalStorageTest extends TestCase
         @rmdir($this->root);
     }
 
+    /**
+     * Проверяет базовые операции записи, чтения и листинга для local.
+     */
+    #[Test]
     public function testPutGetAndList(): void
     {
         $storage = new LocalStorage($this->root, 'https://cdn.local');
@@ -70,6 +77,10 @@ final class LocalStorageTest extends TestCase
         $this->assertSame('https://cdn.local/folder/file.txt', $url);
     }
 
+    /**
+     * Проверяет, что url() для local использует дефолтный путь без baseUrl.
+     */
+    #[Test]
     public function testUrlRequiresBaseUrl(): void
     {
         $storage = new LocalStorage($this->root);

@@ -186,6 +186,31 @@ final class LocalStorage implements StorageInterface
         return DownloadResponseFactory::fromString($contents, $filename);
     }
 
+    public function rootPath(): string
+    {
+        return $this->rootPath;
+    }
+
+    public function setRootPath(string $rootPath): void
+    {
+        $rootPath = rtrim($rootPath, '/\\');
+        if ($rootPath === '') {
+            throw new RuntimeException('Local storage root path must be non-empty.');
+        }
+
+        $this->rootPath = $rootPath;
+    }
+
+    public function baseUrl(): ?string
+    {
+        return $this->baseUrl;
+    }
+
+    public function setBaseUrl(?string $baseUrl): void
+    {
+        $this->baseUrl = $baseUrl !== null && $baseUrl !== '' ? rtrim($baseUrl, '/') : null;
+    }
+
     private function relativePath(string $absolutePath): string
     {
         $absolutePath = str_replace('\\', '/', $absolutePath);

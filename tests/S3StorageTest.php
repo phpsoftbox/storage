@@ -6,10 +6,17 @@ namespace PhpSoftBox\Storage\Tests;
 
 use PhpSoftBox\Storage\Drivers\S3\S3Storage;
 use PhpSoftBox\Storage\Tests\Support\FakeS3Client;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+#[CoversClass(S3Storage::class)]
 final class S3StorageTest extends TestCase
 {
+    /**
+     * Проверяет запись и чтение с учётом префикса.
+     */
+    #[Test]
     public function testPutAndGetUsesPrefix(): void
     {
         $client = new FakeS3Client();
@@ -26,6 +33,10 @@ final class S3StorageTest extends TestCase
         $this->assertSame('app/file.txt', $client->calls[0]['args']['Key']);
     }
 
+    /**
+     * Проверяет, что exists() возвращает false для отсутствующего ключа.
+     */
+    #[Test]
     public function testExistsReturnsFalseForMissingKey(): void
     {
         $client = new FakeS3Client();
@@ -35,6 +46,10 @@ final class S3StorageTest extends TestCase
         $this->assertFalse($storage->exists('missing.txt'));
     }
 
+    /**
+     * Проверяет, что list() возвращает ключи без базового префикса.
+     */
+    #[Test]
     public function testListStripsBasePrefix(): void
     {
         $client = new FakeS3Client();
@@ -49,6 +64,10 @@ final class S3StorageTest extends TestCase
         $this->assertSame(['first.txt', 'nested/second.txt'], $list);
     }
 
+    /**
+     * Проверяет, что url() строится на основе endpoint.
+     */
+    #[Test]
     public function testUrlUsesEndpoint(): void
     {
         $client = new FakeS3Client();

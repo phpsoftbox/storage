@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace PhpSoftBox\Storage;
 
+use FilesystemIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use RuntimeException;
+use SplFileInfo;
 
 use function copy;
 use function dirname;
@@ -59,7 +63,7 @@ final class FileHelper
     public static function directory(string $path): string
     {
         $path = self::normalizePath($path);
-        $dir = rtrim(dirname($path), '/');
+        $dir  = rtrim(dirname($path), '/');
 
         return $dir === '.' ? '' : $dir;
     }
@@ -113,13 +117,13 @@ final class FileHelper
             return;
         }
 
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST,
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
         );
 
         foreach ($iterator as $info) {
-            if (!$info instanceof \SplFileInfo) {
+            if (!$info instanceof SplFileInfo) {
                 continue;
             }
 
@@ -194,8 +198,8 @@ final class FileHelper
     public static function renameFile(string $path, string $newName, int $mode = 0775): void
     {
         $newName = self::normalizePath($newName);
-        $dir = rtrim(dirname($path), '/');
-        $target = $dir === '' || $dir === '.' ? $newName : $dir . '/' . $newName;
+        $dir     = rtrim(dirname($path), '/');
+        $target  = $dir === '' || $dir === '.' ? $newName : $dir . '/' . $newName;
 
         self::moveFile($path, $target, $mode);
     }
