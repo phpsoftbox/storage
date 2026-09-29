@@ -8,6 +8,7 @@ use Aws\S3\S3Client;
 use PhpSoftBox\Storage\Contracts\S3ClientInterface;
 use PhpSoftBox\Storage\Contracts\StorageInterface;
 use PhpSoftBox\Storage\DownloadResponseFactory;
+use PhpSoftBox\Storage\FileHelper;
 use PhpSoftBox\Storage\StorageException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
@@ -15,14 +16,11 @@ use RuntimeException;
 use Throwable;
 
 use function array_key_exists;
-use function basename;
 use function class_exists;
-use function dirname;
 use function is_array;
 use function is_object;
 use function is_resource;
 use function is_string;
-use function ltrim;
 use function method_exists;
 use function parse_url;
 use function rtrim;
@@ -49,7 +47,7 @@ final class S3Storage implements StorageInterface
         ?string $baseUrl = null,
     ) {
         $this->bucket       = $bucket;
-        $this->prefix       = trim($prefix, '/');
+        $this->prefix       = self::normalizePrefix($prefix);
         $this->endpoint     = rtrim($endpoint, '/');
         $this->usePathStyle = $usePathStyle;
         $this->baseUrl      = $baseUrl !== null && $baseUrl !== '' ? rtrim($baseUrl, '/') : null;
@@ -151,6 +149,12 @@ final class S3Storage implements StorageInterface
         ]);
     }
 
+    /**
+     * Опции передаются в PutObject как есть (`ContentType`, `CacheControl`, `Metadata`, `ACL` и т.д.);
+     * `Bucket`, `Key` и `Body` опциями переопределить нельзя.
+     *
+     * @param array<string, mixed> $options
+     */
     public function put(string $path, string $contents, array $options = []): void
     {
         $key = $this->buildKey($path);
@@ -179,16 +183,20 @@ final class S3Storage implements StorageInterface
         }
     }
 
+    /**
+     * false — только если S3 ответил 404; 403, сетевые и прочие ошибки — StorageException.
+     */
     public function exists(string $path): bool
     {
         $key = $this->buildKey($path);
 
         try {
-            $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $key]);
-
-            return true;
-        } catch (Throwable) {
-            return false;
+            return $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $key]) !== null;
+        } catch (Throwable $exception) {
+            throw new StorageException('Failed to check object existence in S3.', $exception, [
+                'bucket' => $this->bucket,
+                'key'    => $key,
+            ]);
         }
     }
 
@@ -197,41 +205,77 @@ final class S3Storage implements StorageInterface
         return !$this->exists($path);
     }
 
+    /**
+     * Все ключи внутри «каталога» `$prefix` (с учётом префикса диска), постранично через ContinuationToken.
+     */
     public function list(string $prefix = ''): array
     {
-        $resolved = $this->buildKey($prefix);
-
-        try {
-            $result = $this->client->listObjectsV2(['Bucket' => $this->bucket, 'Prefix' => $resolved]);
-        } catch (Throwable $exception) {
-            throw new StorageException('Failed to list objects in S3.', $exception, [
-                'bucket' => $this->bucket,
-                'prefix' => $resolved,
-            ]);
-        }
-
-        $contents = $result['Contents'] ?? [];
+        $resolved = $this->listPrefix($prefix);
         $keys     = [];
+        $token    = null;
 
-        if (!is_array($contents)) {
-            return $keys;
-        }
-
-        foreach ($contents as $item) {
-            if (!is_array($item) || !array_key_exists('Key', $item)) {
-                continue;
+        do {
+            $args = ['Bucket' => $this->bucket, 'Prefix' => $resolved];
+            if ($token !== null) {
+                $args['ContinuationToken'] = $token;
             }
 
-            $keys[] = $this->stripPrefix((string) $item['Key']);
-        }
+            try {
+                $result = $this->client->listObjectsV2($args);
+            } catch (Throwable $exception) {
+                throw new StorageException('Failed to list objects in S3.', $exception, [
+                    'bucket' => $this->bucket,
+                    'prefix' => $resolved,
+                ]);
+            }
+
+            $contents = $result['Contents'] ?? [];
+            foreach (is_array($contents) ? $contents : [] as $item) {
+                if (!is_array($item) || !array_key_exists('Key', $item)) {
+                    continue;
+                }
+
+                $keys[] = $this->stripPrefix((string) $item['Key']);
+            }
+
+            $token = null;
+            if (($result['IsTruncated'] ?? false) === true) {
+                $next = $result['NextContinuationToken'] ?? null;
+                if (!is_string($next) || $next === '') {
+                    throw new StorageException('S3 returned a truncated listing without continuation token.', null, [
+                        'bucket' => $this->bucket,
+                        'prefix' => $resolved,
+                    ]);
+                }
+
+                $token = $next;
+            }
+        } while ($token !== null);
 
         return $keys;
     }
 
+    /**
+     * Серверное копирование (CopyObject): содержимое, Content-Type и пользовательские metadata сохраняются.
+     */
     public function copy(string $sourcePath, string $targetPath): void
     {
-        $contents = $this->read($sourcePath);
-        $this->put($targetPath, $contents);
+        $sourceKey = $this->buildKey($sourcePath);
+        $targetKey = $this->buildKey($targetPath);
+
+        try {
+            $this->client->copyObject([
+                'Bucket'     => $this->bucket,
+                'Key'        => $targetKey,
+                'CopySource' => $this->bucket . '/' . FileHelper::encodeUrlPath($sourceKey),
+            ]);
+        } catch (Throwable $exception) {
+            throw new StorageException('Failed to copy object in S3.', $exception, [
+                'bucket' => $this->bucket,
+                'source' => $sourceKey,
+                'key'    => $targetKey,
+            ]);
+        }
     }
 
     public function move(string $sourcePath, string $targetPath): void
@@ -242,23 +286,23 @@ final class S3Storage implements StorageInterface
 
     public function rename(string $path, string $newName): void
     {
-        $newName = ltrim($newName, '/');
-        $dir     = rtrim(dirname($path), '/');
-        $target  = $dir === '' || $dir === '.' ? $newName : $dir . '/' . $newName;
+        $dir    = FileHelper::directory($path);
+        $target = FileHelper::normalizePath($newName);
+        $target = $dir === '' ? $target : $dir . '/' . $target;
 
         $this->move($path, $target);
     }
 
     public function url(string $path): string
     {
-        $key = $this->buildKey($path);
+        $key = FileHelper::encodeUrlPath($this->buildKey($path));
 
         if ($this->baseUrl !== null) {
-            return $this->baseUrl . '/' . ltrim($key, '/');
+            return $this->baseUrl . '/' . $key;
         }
 
         if ($this->usePathStyle) {
-            return rtrim($this->endpoint, '/') . '/' . $this->bucket . '/' . ltrim($key, '/');
+            return $this->endpoint . '/' . $this->bucket . '/' . $key;
         }
 
         $parts  = parse_url($this->endpoint);
@@ -266,18 +310,15 @@ final class S3Storage implements StorageInterface
         $host   = is_array($parts) ? ($parts['host'] ?? '') : '';
 
         if ($host === '') {
-            return rtrim($this->endpoint, '/') . '/' . $this->bucket . '/' . ltrim($key, '/');
+            return $this->endpoint . '/' . $this->bucket . '/' . $key;
         }
 
-        return $scheme . '://' . $this->bucket . '.' . $host . '/' . ltrim($key, '/');
+        return $scheme . '://' . $this->bucket . '.' . $host . '/' . $key;
     }
 
     public function download(string $path, ?string $name = null): ResponseInterface
     {
-        $contents = $this->read($path);
-        $filename = $name ?? basename($path);
-
-        return DownloadResponseFactory::fromString($contents, $filename);
+        return DownloadResponseFactory::fromString($this->read($path), $name ?? $path);
     }
 
     public function prefix(): string
@@ -287,7 +328,7 @@ final class S3Storage implements StorageInterface
 
     public function setPrefix(string $prefix): void
     {
-        $this->prefix = trim($prefix, '/');
+        $this->prefix = self::normalizePrefix($prefix);
     }
 
     public function baseUrl(): ?string
@@ -300,15 +341,35 @@ final class S3Storage implements StorageInterface
         $this->baseUrl = $baseUrl !== null && $baseUrl !== '' ? rtrim($baseUrl, '/') : null;
     }
 
+    /**
+     * Ключ объекта: путь нормализуется по тем же правилам, что и в LocalStorage (FileHelper::normalizePath),
+     * поэтому `../` не позволяет выйти за префикс диска (например, префикс тенанта).
+     */
     private function buildKey(string $path): string
     {
-        $path = ltrim($path, '/');
+        $path = FileHelper::normalizePath($path);
 
         if ($this->prefix === '') {
             return $path;
         }
 
-        return rtrim($this->prefix, '/') . '/' . $path;
+        return $this->prefix . '/' . $path;
+    }
+
+    private function listPrefix(string $prefix): string
+    {
+        if (trim($prefix, " \t\n\r\x0B/\\") === '') {
+            return $this->prefix === '' ? '' : $this->prefix . '/';
+        }
+
+        return $this->buildKey($prefix) . '/';
+    }
+
+    private static function normalizePrefix(string $prefix): string
+    {
+        $prefix = trim($prefix, " \t\n\r\x0B/\\");
+
+        return $prefix === '' ? '' : FileHelper::normalizePath($prefix);
     }
 
     private function stripPrefix(string $key): string
@@ -317,10 +378,10 @@ final class S3Storage implements StorageInterface
             return $key;
         }
 
-        $prefix = rtrim($this->prefix, '/') . '/';
+        $prefix = $this->prefix . '/';
 
         if (str_starts_with($key, $prefix)) {
-            return ltrim(substr($key, strlen($prefix)), '/');
+            return substr($key, strlen($prefix));
         }
 
         return $key;

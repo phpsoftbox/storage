@@ -7,6 +7,8 @@
 - менеджер `Storage` для работы с дисками
 - драйверы: `LocalStorage`, `S3Storage`
 - `FileHelper` со статическими утилитами для локальных путей и файловой системы
+- единые правила путей для всех драйверов: нормализация, запрет `..`, атомарная запись в Local, постраничный листинг
+  и серверное копирование в S3
 
 ## Quick Start
 ```php
@@ -17,7 +19,7 @@ $storage = new Storage([
     'disks' => [
         'uploads' => [
             'driver' => 'local',
-            'rootPath' => __DIR__ . '/storage',
+            'rootPath' => __DIR__ . '/storage', // только абсолютный путь
             'baseUrl' => 'https://cdn.local',
         ],
     ],
@@ -25,6 +27,9 @@ $storage = new Storage([
 
 $contents = $storage->disk('uploads')->get('reports/hello.txt');
 ```
+
+Для неописанного диска по умолчанию задайте верхнеуровневый абсолютный `rootPath`
+(`new Storage(['rootPath' => '/var/app/storage'])`), иначе `disk()` бросит `StorageException`.
 
 S3:
 

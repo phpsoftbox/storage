@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace PhpSoftBox\Storage\Contracts;
 
-use DateInterval;
-use DateTimeInterface;
-
+/**
+ * Минимальный S3-клиент, который нужен S3Storage. Аргументы — как у одноимённых операций AWS SDK.
+ */
 interface S3ClientInterface
 {
     /**
@@ -27,13 +27,19 @@ interface S3ClientInterface
     public function deleteObject(array $args): void;
 
     /**
+     * Метаданные объекта или null, если объекта нет (HTTP 404).
+     *
+     * Любая другая ошибка (403, сетевая, 5xx) должна пробрасываться исключением.
+     *
      * @param array<string, mixed> $args
      *
-     * @return array<string, mixed>
+     * @return array<string, mixed>|null
      */
-    public function headObject(array $args): array;
+    public function headObject(array $args): ?array;
 
     /**
+     * Одна страница листинга (до `MaxKeys` ключей); продолжение — через `ContinuationToken`.
+     *
      * @param array<string, mixed> $args
      *
      * @return array<string, mixed>
@@ -41,9 +47,9 @@ interface S3ClientInterface
     public function listObjectsV2(array $args): array;
 
     /**
+     * Серверное копирование объекта (`CopySource` = `bucket/url-encoded-key`).
+     *
      * @param array<string, mixed> $args
      */
-    public function getCommand(string $name, array $args): object;
-
-    public function createPresignedRequest(object $command, DateInterval|DateTimeInterface|int $expires): object;
+    public function copyObject(array $args): void;
 }

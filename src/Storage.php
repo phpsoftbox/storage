@@ -12,11 +12,23 @@ use function array_values;
 use function is_array;
 use function is_string;
 
+/**
+ * Менеджер дисков.
+ *
+ * Конфигурация:
+ * - `default` — имя диска по умолчанию (`local`);
+ * - `rootPath` — абсолютный корень для local-дисков без собственного `rootPath`
+ *   и для неописанного диска по умолчанию;
+ * - `disks` — описания дисков (`driver`: `local` | `s3`).
+ */
 final class Storage
 {
     /** @var array<string, StorageInterface> */
     private array $disks = [];
 
+    /**
+     * @param array<string, mixed> $config
+     */
     public function __construct(
         private readonly array $config = [],
     ) {
@@ -117,14 +129,23 @@ final class Storage
      */
     private function defaultLocalConfig(): array
     {
+        $root = $this->defaultLocalRoot();
+        if ($root === null) {
+            throw new StorageException(
+                'Default storage disk "' . $this->defaultDisk() . '" is not configured: set an absolute "rootPath".',
+            );
+        }
+
         return [
             'driver'   => 'local',
-            'rootPath' => $this->defaultLocalRoot(),
+            'rootPath' => $root,
         ];
     }
 
-    private function defaultLocalRoot(): string
+    private function defaultLocalRoot(): ?string
     {
-        return 'local/storage';
+        $root = $this->config['rootPath'] ?? null;
+
+        return is_string($root) && $root !== '' ? $root : null;
     }
 }

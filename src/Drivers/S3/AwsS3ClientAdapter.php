@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace PhpSoftBox\Storage\Drivers\S3;
 
+use Aws\Exception\AwsException;
 use Aws\Result;
 use Aws\S3\S3Client;
-use DateInterval;
-use DateTimeInterface;
 use PhpSoftBox\Storage\Contracts\S3ClientInterface;
 
 use function is_array;
@@ -36,9 +35,17 @@ final class AwsS3ClientAdapter implements S3ClientInterface
         $this->client->deleteObject($args);
     }
 
-    public function headObject(array $args): array
+    public function headObject(array $args): ?array
     {
-        return $this->normalizeResult($this->client->headObject($args));
+        try {
+            return $this->normalizeResult($this->client->headObject($args));
+        } catch (AwsException $exception) {
+            if ($exception->getStatusCode() === 404) {
+                return null;
+            }
+
+            throw $exception;
+        }
     }
 
     public function listObjectsV2(array $args): array
@@ -46,16 +53,14 @@ final class AwsS3ClientAdapter implements S3ClientInterface
         return $this->normalizeResult($this->client->listObjectsV2($args));
     }
 
-    public function getCommand(string $name, array $args): object
+    public function copyObject(array $args): void
     {
-        return $this->client->getCommand($name, $args);
+        $this->client->copyObject($args);
     }
 
-    public function createPresignedRequest(object $command, DateInterval|DateTimeInterface|int $expires): object
-    {
-        return $this->client->createPresignedRequest($command, $expires);
-    }
-
+    /**
+     * @return array<string, mixed>
+     */
     private function normalizeResult(mixed $result): array
     {
         if ($result instanceof Result) {
