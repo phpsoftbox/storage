@@ -6,6 +6,9 @@
 - `build(array $config): StorageInterface`
 - `url(string $path, ?string $disk = null): string`
 
+Конфигурация менеджера: `default` (имя диска, по умолчанию `local`), `rootPath` (абсолютный корень для local-дисков
+без собственного `rootPath` и для неописанного диска по умолчанию), `disks`.
+
 Контракт драйвера описан в `PhpSoftBox\Storage\Contracts\StorageInterface`:
 
 - `get(string $path): string`
@@ -23,9 +26,23 @@
 
 `get()` — алиас для `read()`.
 
+Общие правила контракта:
+
+- пути относительные и нормализуются `FileHelper::normalizePath()` одинаково для всех драйверов; сегмент `..`,
+  NUL-байт и пустой путь — `StorageException`;
+- `exists()` возвращает `false` только если файла точно нет; ошибки доступа/сети — `StorageException`;
+- `list($prefix)` — все файлы внутри каталога `$prefix` рекурсивно;
+- `put()` — набор `$options` зависит от драйвера (Local: `permissions`; S3: параметры `PutObject`), неподдерживаемые
+  опции Local отклоняет;
+- `url()` кодирует сегменты пути;
+- `download()` отдаёт `Content-Disposition: attachment; filename="<ASCII>"; filename*=UTF-8''<имя>`
+  (`DownloadResponseFactory::contentDisposition()`).
+
 `FileHelper` содержит статические утилиты для локальных путей и файловой системы:
 
-- `normalizePath(string $path): string`
+- `normalizePath(string $path): string` — `..` как сегмент запрещён, внутри имени (`report..v2.pdf`) допустим
+- `isAbsolutePath(string $path): bool`
+- `encodeUrlPath(string $path): string`
 - `directory(string $path): string`
 - `directories(string $path): array`
 - `createDirectory(string $path, int $mode = 0775, bool $recursive = true): void`

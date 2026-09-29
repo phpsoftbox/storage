@@ -10,6 +10,7 @@ use RecursiveIteratorIterator;
 use RuntimeException;
 use SplFileInfo;
 
+use function array_map;
 use function copy;
 use function dirname;
 use function explode;
@@ -19,11 +20,14 @@ use function is_dir;
 use function is_file;
 use function ltrim;
 use function mkdir;
+use function preg_match;
+use function rawurlencode;
 use function rename;
 use function rmdir;
 use function rtrim;
 use function str_contains;
 use function str_replace;
+use function str_starts_with;
 use function trim;
 use function unlink;
 
@@ -33,8 +37,21 @@ final class FileHelper
     {
     }
 
+    /**
+     * Приводит относительный путь внутри диска к виду `a/b/c`.
+     *
+     * Обратные слэши заменяются на `/`, ведущие слэши, пустые сегменты и `.` отбрасываются.
+     * Сегмент `..` (выход за корень/префикс) и NUL-байт запрещены; `..` внутри имени
+     * (`report..v2.pdf`) допустимо. Пустой результат — ошибка.
+     *
+     * @throws StorageException
+     */
     public static function normalizePath(string $path): string
     {
+        if (str_contains($path, "\0")) {
+            throw new StorageException('Path must not contain NUL bytes.');
+        }
+
         $path = str_replace('\\', '/', trim($path));
         $path = ltrim($path, '/');
 
@@ -47,7 +64,7 @@ final class FileHelper
             if ($segment === '' || $segment === '.') {
                 continue;
             }
-            if ($segment === '..' || str_contains($segment, '..')) {
+            if ($segment === '..') {
                 throw new StorageException('Path traversal is not allowed.');
             }
             $segments[] = $segment;
@@ -58,6 +75,30 @@ final class FileHelper
         }
 
         return implode('/', $segments);
+    }
+
+    /**
+     * Проверяет, что путь абсолютный: `/var/data`, `C:\data`, `C:/data`, `\\server\share` или `scheme://...`.
+     */
+    public static function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if ($path[0] === '/' || str_starts_with($path, '\\\\')) {
+            return true;
+        }
+
+        return preg_match('~^(?:[A-Za-z]:[\\\\/]|[A-Za-z][A-Za-z0-9+.-]*://)~', $path) === 1;
+    }
+
+    /**
+     * Кодирует каждый сегмент пути для URL (`rawurlencode`), сохраняя разделители `/`.
+     */
+    public static function encodeUrlPath(string $path): string
+    {
+        return implode('/', array_map(rawurlencode(...), explode('/', $path)));
     }
 
     public static function directory(string $path): string
